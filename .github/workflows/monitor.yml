@@ -1,0 +1,59 @@
+name: Monitor construccion y conglomerados
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"       # respaldo: GitHub lo retrasa; cron-job.org es el que lo activa a tiempo
+  workflow_dispatch:             # botón "Run workflow" (y lo que usa cron-job.org)
+    inputs:
+      prueba:
+        description: "Enviar correos de PRUEBA (Perú, Chile, EEFF y Colombia)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write                # para guardar seen.json en el repositorio
+
+concurrency:
+  group: monitor-construccion    # nunca dos ejecuciones a la vez
+  cancel-in-progress: false
+
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements_construccion.txt
+
+      # Navegador automático para el SIMEV (Colombia). Se guarda en caché para
+      # no descargarlo completo en cada revisión.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements_construccion.txt') }}
+      - run: python -m playwright install --with-deps chromium
+
+      - name: Revisar Peru, Chile y Colombia
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          TEST_MODE: ${{ inputs.prueba && '1' || '0' }}
+        run: python monitor_construccion.py
+
+      - name: Guardar lo ya avisado
+        if: always() && inputs.prueba != true
+        run: |
+          if [ -n "$(git status --porcelain seen.json)" ]; then
+            git config user.name  "monitor-bot"
+            git config user.email "monitor-bot@users.noreply.github.com"
+            git add seen.json
+            git commit -m "Actualizar hechos vistos"
+            git pull --rebase
+            git push
+          fi
