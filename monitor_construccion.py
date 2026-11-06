@@ -1,0 +1,1057 @@
+"""
+Monitor de Construcción y Conglomerados: Perú (SMV + BVL), Chile (CMF) y
+Colombia (SIMEV – Superintendencia Financiera)
+========================================================================
+Es un programa APARTE del monitor de minería: otro repositorio, otros
+destinatarios y su propio seen.json.
+
+Qué hace, en cada ejecución:
+  1. Lee la página "Hechos de Importancia del Día" de la SMV (fuente principal,
+     publica unos minutos antes que la BVL). Recorre todas sus páginas.
+  2. Consulta la API de la BVL (fuente de respaldo) para hoy y ayer. Sirve para
+     atrapar lo que la SMV no haya mostrado.
+  3. Lee la lista de Hechos Esenciales de los últimos 7 días de la CMF (Chile).
+  3b. Revisa la pestaña "Información Financiera" de cada empresa de la CMF: en
+     Chile los estados financieros trimestrales no se anuncian como hecho esencial.
+  3c. Lee la "Información relevante" del SIMEV (Colombia) con un navegador
+     automático (la página se arma con JavaScript) y descarga los anexos.
+  4. Filtra solo las empresas de EMPRESAS (Perú), EMPRESAS_CMF (Chile) y
+     EMPRESAS_COL (Colombia).
+  5. Compara contra seen.json para no avisar dos veces lo mismo.
+  6. Por cada hecho nuevo envía un correo con los PDFs adjuntos a todos los
+     destinatarios de la variable EMAIL_TO ([HI] = Perú, [HE] = Chile,
+     [EEFF] = estados financieros de Chile, con el PDF y el Análisis Razonado,
+     [IR] = información relevante de Colombia).
+  7. Si una fuente falla ~1 hora seguida, envía un correo de aviso.
+
+Variables de entorno (se guardan como "Secrets" en GitHub):
+  GMAIL_USER          correo del Gmail robot (remitente)
+  GMAIL_APP_PASSWORD  contraseña de aplicación de 16 caracteres de ese Gmail
+  EMAIL_TO            destinatarios separados por coma
+
+Modo prueba (TEST_MODE=1): no lee ni modifica seen.json; envía el hecho más
+reciente de Cementos Pacasmayo (BVL), el hecho esencial más reciente de la CMF,
+los últimos EEFF de Salfacorp y la información relevante más reciente del SIMEV,
+para comprobar que los correos y los adjuntos llegan bien.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import smtplib
+import sys
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
+from pathlib import Path
+from urllib.parse import urljoin
+from zoneinfo import ZoneInfo
+
+import requests
+from bs4 import BeautifulSoup
+
+# ---------------------------------------------------------------------------
+# CONFIGURACIÓN: aquí se agregan o quitan empresas
+# ---------------------------------------------------------------------------
+# keywords: palabras que deben aparecer en el nombre de la empresa en la SMV
+#           (todas, en mayúsculas, sin importar tildes).
+# bvl_rpj:  código de la empresa en la BVL (se obtiene de la API de la BVL).
+EMPRESAS = [
+    {"ticker": "CPACASC1", "nombre": "Cementos Pacasmayo",
+     "keywords": ["CEMENTOS PACASMAYO"], "bvl_rpj": "CD0005"},
+    {"ticker": "FERREYC1", "nombre": "Ferreycorp",
+     "keywords": ["FERREYCORP"], "bvl_rpj": "B60001"},
+    {"ticker": "UNACEMC1", "nombre": "Unacem",
+     "keywords": ["UNACEM CORP"], "bvl_rpj": "B30121"},
+]
+
+# Chile (CMF): se compara con la razón social EXACTA que figura en la CMF,
+# para no confundir, por ejemplo, "CAP S.A." con otras empresas que contengan "CAP".
+EMPRESAS_CMF = [
+    {"ticker": "SALFACORP", "nombre": "Salfacorp",
+     "razon_social": "SALFACORP S.A.", "rut": "96885880"},
+    {"ticker": "SK", "nombre": "Sigdo Koppers",
+     "razon_social": "SIGDO KOPPERS S.A.", "rut": "99598300"},
+]
+# rut: RUT sin dígito verificador, tal como aparece en la dirección de la página
+# de la empresa en la CMF. Se usa para la sección "Información Financiera".
+
+CMF_URL = "https://www.cmfchile.cl/institucional/hechos/hechos_portada.php"
+CMF_BASE = "https://www.cmfchile.cl"
+CMF_ENTIDAD = ("https://www.cmfchile.cl/institucional/mercados/entidad.php"
+               "?mercado=V&rut={rut}&grupo=&tipoentidad=RVEMI&vig=VI"
+               "&control=svs&pestania={pestania}")
+TRIMESTRE = {3: "1T", 6: "2T", 9: "3T", 12: "4T"}
+
+# Colombia (SIMEV): el nombre de la entidad en la tabla debe EMPEZAR con este
+# texto (sin importar tildes). Así "CELSIA S.A." no toma a "CELSIA COLOMBIA
+# S.A. E.S.P." (filial) ni "CEMENTOS ARGOS S.A." a fondos que dicen CEMARGOS.
+EMPRESAS_COL = [
+    {"ticker": "GRUPOSURA", "nombre": "Grupo Sura",
+     "razon_social": "GRUPO DE INVERSIONES SURAMERICANA S.A."},
+    {"ticker": "GRUPOARGOS", "nombre": "Grupo Argos",
+     "razon_social": "GRUPO ARGOS S.A."},
+    {"ticker": "CEMARGOS", "nombre": "Cementos Argos",
+     "razon_social": "CEMENTOS ARGOS S.A."},
+    {"ticker": "CELSIA", "nombre": "Celsia",
+     "razon_social": "CELSIA S.A."},
+    {"ticker": "CORFICOLCF", "nombre": "Corficolombiana",
+     "razon_social": "CORPORACION FINANCIERA COLOMBIANA S.A."},
+    {"ticker": "PROMIGAS", "nombre": "Promigas",
+     "razon_social": "PROMIGAS S.A. E.S.P."},
+]
+SIMEV_URL = "https://www.superfinanciera.gov.co/SIMEV2/informacionrelevantegeneral"
+BOGOTA = timezone(timedelta(hours=-5))        # Colombia no usa horario de verano
+SIMEV_MAX_PAGINAS = 8                          # la tabla muestra ~3 días (~30 filas)
+
+SMV_URL = ("https://www.smv.gob.pe/SIMV/Frm_hechosdeImportanciaDia"
+           "?data=38C2EC33FA106691BB5B5039DACFDF50795D8EC3AF")
+SMV_GRID = "ctl00$MainContent$grdHechosImportancia2"
+BVL_API = "https://dataondemand.bvl.com.pe/v1/corporate-actions"
+BVL_DOCS = "https://documents.bvl.com.pe"
+
+STATE_FILE = Path(__file__).with_name("seen.json")
+LIMA = timezone(timedelta(hours=-5))          # Perú no usa horario de verano
+SANTIAGO = ZoneInfo("America/Santiago")       # Chile sí cambia de hora
+ALERTA_FALLAS = 12                            # 12 revisiones seguidas ≈ 1 hora
+MAX_ADJUNTOS_MB = 20                          # Gmail acepta hasta 25 MB
+VENTANA_DUPLICADO_MIN = 45                    # SMV vs BVL del mismo hecho
+HEARTBEAT_DIAS = 25                           # evita que GitHub apague el horario
+TIMEOUT = 40
+
+HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/124.0 Safari/537.36"),
+    "Accept-Language": "es-PE,es;q=0.9",
+}
+
+
+# ---------------------------------------------------------------------------
+# Modelo de datos
+# ---------------------------------------------------------------------------
+@dataclass
+class Hecho:
+    fuente: str                 # "SMV" o "BVL"
+    empresa_raw: str            # nombre tal como aparece en la fuente
+    empresa: dict               # entrada de EMPRESAS
+    fecha_hora: datetime        # hora de publicación (Lima)
+    tipo: str
+    descripcion: str
+    documentos: list[str] = field(default_factory=list)   # URLs de los PDFs
+    expediente: str = ""
+    uid: str = ""               # identificador fijo (CMF: número de documento)
+    nombres: list[str] = field(default_factory=list)       # nombre de cada adjunto
+    aviso_inicial: bool = False  # EEFF: avisar aunque sea la primera lectura
+    adjuntos_listos: list = field(default_factory=list)    # SIMEV: (nombre, bytes)
+    fila: int = -1               # SIMEV: posición de la fila en la página
+
+    def doc_ids(self) -> list[str]:
+        """Identificadores únicos de cada documento (para deduplicar)."""
+        if self.uid:
+            return [f"{self.fuente}:{self.uid}"]
+        return [f"{self.fuente}:{d}" for d in self.documentos] or \
+               [f"{self.fuente}:{self.empresa_raw}:{self.fecha_hora:%Y%m%d%H%M}"]
+
+
+# ---------------------------------------------------------------------------
+# Utilidades
+# ---------------------------------------------------------------------------
+def ahora_lima() -> datetime:
+    return datetime.now(LIMA)
+
+
+def normalizar(texto: str) -> str:
+    tabla = str.maketrans("ÁÉÍÓÚÜÑáéíóúüñ", "AEIOUUNaeiouun")
+    return re.sub(r"\s+", " ", texto.translate(tabla)).strip().upper()
+
+
+def identificar_empresa(nombre: str) -> dict | None:
+    n = normalizar(nombre)
+    for emp in EMPRESAS:
+        if all(normalizar(k) in n for k in emp["keywords"]):
+            return emp
+    return None
+
+
+def log(msg: str) -> None:
+    print(f"[{ahora_lima():%Y-%m-%d %H:%M:%S}] {msg}", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Fuente 1: SMV – Hechos de Importancia del Día
+# ---------------------------------------------------------------------------
+def _campos_formulario(soup: BeautifulSoup) -> dict:
+    """Campos ocultos de ASP.NET (VIEWSTATE, etc.) necesarios para pedir la página 2."""
+    form = soup.find("form")
+    datos = {}
+    if not form:
+        return datos
+    for el in form.find_all("input"):
+        nombre, tipo = el.get("name"), (el.get("type") or "text").lower()
+        if not nombre or tipo in ("submit", "image", "button"):
+            continue
+        if tipo in ("radio", "checkbox") and not el.has_attr("checked"):
+            continue
+        datos[nombre] = el.get("value", "")
+    return datos
+
+
+def _paginas_pendientes(soup: BeautifulSoup) -> list[str]:
+    """Devuelve los argumentos 'Page$N' de los enlaces de paginación."""
+    return re.findall(r"__doPostBack\('[^']*grdHechosImportancia2','(Page\$\d+)'\)",
+                      str(soup))
+
+
+def parsear_smv(html: str) -> list[Hecho]:
+    soup = BeautifulSoup(html, "html.parser")
+    hechos: list[Hecho] = []
+    for lbl in soup.select("span[id*=lblEmpresahi]"):
+        empresa_raw = lbl.get_text(strip=True)
+        emp = identificar_empresa(empresa_raw)
+        if not emp:
+            continue
+        fila = lbl.find_parent("tr")
+        for card in fila.select("div.card-body"):
+            exp_txt = card.select_one("p.text-blue")
+            exp_txt = exp_txt.get_text(" ", strip=True) if exp_txt else ""
+            tipo = card.select_one("h5.card-title")
+            desc = card.select_one("p.card-text")
+            # Un expediente antiguo puede "regularizarse" hoy: la tarjeta trae TODOS
+            # sus documentos históricos (vimos uno con 203). Solo se consideran
+            # los documentos fechados en los últimos 2 días.
+            limite = ahora_lima() - timedelta(days=2)
+            links, horas = [], []
+            for div in card.select("div.archivos-div"):
+                a = div.find("a", href=True)
+                if not (a and "documento.aspx" in a["href"]):
+                    continue
+                partes = [d.get_text(strip=True)
+                          for d in div.select("div.fecha-adjunto div")]
+                fecha_doc = None
+                if len(partes) == 2:
+                    try:
+                        fecha_doc = datetime.strptime(
+                            " ".join(partes), "%d/%m/%Y %H:%M").replace(tzinfo=LIMA)
+                    except ValueError:
+                        pass
+                if fecha_doc and fecha_doc < limite:
+                    continue
+                links.append(a["href"].strip())
+                if fecha_doc:
+                    horas.append(fecha_doc)
+            m = re.search(r"EXP\.\s*(\d+)\s+DEL\s+(\d\d/\d\d/\d{4} \d\d:\d\d)", exp_txt)
+            if not links and card.select("div.archivos-div"):
+                continue                     # solo tenía documentos antiguos
+            fh = max(horas) if horas else (
+                datetime.strptime(m.group(2), "%d/%m/%Y %H:%M").replace(tzinfo=LIMA)
+                if m else ahora_lima())
+            hechos.append(Hecho(
+                fuente="SMV", empresa_raw=empresa_raw, empresa=emp, fecha_hora=fh,
+                tipo=tipo.get_text(" ", strip=True) if tipo else "",
+                descripcion=desc.get_text(" ", strip=True) if desc else "",
+                documentos=links, expediente=m.group(1) if m else "",
+            ))
+    return hechos
+
+
+def leer_smv(session: requests.Session) -> list[Hecho]:
+    r = session.get(SMV_URL, timeout=TIMEOUT)
+    r.raise_for_status()
+    if "lblEmpresahi" not in r.text and "Hechos de Importancia del D" not in r.text:
+        raise RuntimeError("La SMV no devolvió la página esperada "
+                           "(¿cambió el enlace o hay un bloqueo?)")
+    html_paginas = [r.text]
+    soup = BeautifulSoup(r.text, "html.parser")
+    vistas = {"Page$1"}
+    pendientes = [p for p in _paginas_pendientes(soup) if p not in vistas]
+    while pendientes:                       # recorre página 2, 3, ...
+        pagina = pendientes.pop(0)
+        if pagina in vistas:
+            continue
+        datos = _campos_formulario(soup)
+        datos["__EVENTTARGET"] = SMV_GRID
+        datos["__EVENTARGUMENT"] = pagina
+        r = session.post(SMV_URL, data=datos, timeout=TIMEOUT,
+                         headers={"Referer": SMV_URL})
+        r.raise_for_status()
+        vistas.add(pagina)
+        html_paginas.append(r.text)
+        soup = BeautifulSoup(r.text, "html.parser")
+        pendientes += [p for p in _paginas_pendientes(soup)
+                       if p not in vistas and p not in pendientes]
+        if len(vistas) > 15:                # protección contra bucles
+            break
+    hechos = []
+    for html in html_paginas:
+        hechos += parsear_smv(html)
+    log(f"SMV: {len(html_paginas)} página(s) leída(s), "
+        f"{len(hechos)} hecho(s) de empresas seguidas")
+    return hechos
+
+
+# ---------------------------------------------------------------------------
+# Fuente 2: BVL – API de hechos de importancia (respaldo)
+# ---------------------------------------------------------------------------
+def parsear_bvl(data: dict) -> list[Hecho]:
+    por_rpj = {e["bvl_rpj"]: e for e in EMPRESAS}
+    hechos = []
+    for it in data.get("content", []):
+        emp = por_rpj.get(it.get("rpjCode"))
+        if not emp:
+            continue
+        fh = datetime.strptime(it["registerDate"][:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=LIMA)
+        tipos = "; ".join(c.get("descCodeHHII", "") for c in it.get("codes", []))
+        docs = [BVL_DOCS + d["path"] for d in it.get("documents", []) if d.get("path")]
+        obs = (it.get("observation") or "").strip()
+        hechos.append(Hecho(fuente="BVL", empresa_raw=it.get("businessName", ""),
+                            empresa=emp, fecha_hora=fh, tipo=tipos,
+                            descripcion=obs, documentos=docs))
+    return hechos
+
+
+def consultar_bvl(session: requests.Session, desde: str, hasta: str,
+                  rpj: str = "", size: int = 300) -> dict:
+    cuerpo = {"rpjCode": rpj, "subIFCode": "", "startDate": desde,
+              "endDate": hasta, "search": "", "page": 1, "size": size}
+    r = session.post(BVL_API, json=cuerpo, timeout=TIMEOUT, headers={
+        "Origin": "https://www.bvl.com.pe",
+        "Referer": "https://www.bvl.com.pe/"})
+    r.raise_for_status()
+    return r.json()
+
+
+def leer_bvl(session: requests.Session) -> list[Hecho]:
+    hoy = ahora_lima().date()
+    data = consultar_bvl(session, f"{hoy - timedelta(days=1)}", f"{hoy}")
+    hechos = parsear_bvl(data)
+    log(f"BVL: {data.get('totalElements', '?')} hecho(s) en total, "
+        f"{len(hechos)} de empresas seguidas")
+    return hechos
+
+
+# ---------------------------------------------------------------------------
+# Fuente 3: CMF Chile – Hechos esenciales de los últimos 7 días
+# ---------------------------------------------------------------------------
+def parsear_cmf(html: str, solo_seguidas: bool = True) -> list[Hecho]:
+    """Lee la tabla (Fecha-Hora | N° de documento | Entidad | Materia)."""
+    soup = BeautifulSoup(html, "html.parser")
+    exactos = {normalizar(e["razon_social"]): e for e in EMPRESAS_CMF}
+    hechos = []
+    for tr in soup.find_all("tr"):
+        celdas = tr.find_all("td", recursive=False)
+        if len(celdas) != 4:
+            continue
+        fecha_txt = celdas[0].get_text(strip=True)
+        if not re.fullmatch(r"\d\d/\d\d/\d{4} \d\d:\d\d:\d\d", fecha_txt):
+            continue
+        entidad = celdas[2].get_text(" ", strip=True)
+        emp = exactos.get(normalizar(entidad))
+        if not emp:
+            if solo_seguidas:
+                continue
+            emp = {"ticker": "EJEMPLO-CMF", "nombre": entidad}
+        a = celdas[1].find("a", href=True)
+        numero = celdas[1].get_text(strip=True)
+        # El enlace trae "&t=<hora>" que cambia en cada carga: no sirve como ID.
+        url = (CMF_BASE + a["href"] if a and a["href"].startswith("/") else
+               (a["href"] if a else ""))
+        materias = [m.strip() for m in celdas[3].get_text("\n").split("\n") if m.strip()]
+        fh = datetime.strptime(fecha_txt, "%d/%m/%Y %H:%M:%S").replace(tzinfo=SANTIAGO)
+        hechos.append(Hecho(
+            fuente="CMF", empresa_raw=entidad, empresa=emp, fecha_hora=fh,
+            tipo="; ".join(materias), descripcion="",
+            documentos=[url] if url else [], expediente=numero, uid=numero,
+        ))
+    return hechos
+
+
+def leer_cmf(session: requests.Session) -> list[Hecho]:
+    r = session.get(CMF_URL, timeout=TIMEOUT)
+    r.raise_for_status()
+    r.encoding = r.encoding or "utf-8"         # la CMF declara UTF-8
+    if "Hechos Esenciales" not in r.text:
+        raise RuntimeError("La CMF no devolvió la página esperada")
+    hechos = parsear_cmf(r.text)
+    log(f"CMF: {len(hechos)} hecho(s) de empresas seguidas en los últimos 7 días")
+    return hechos
+
+
+# ---------------------------------------------------------------------------
+# Fuente 4: CMF Chile – Información Financiera (estados financieros trimestrales)
+# ---------------------------------------------------------------------------
+# En Chile la publicación de los EEFF NO viene como hecho esencial: se suben a la
+# pestaña "Información Financiera" de cada empresa. Se consulta el último cierre
+# trimestral (y el anterior) hasta que aparezcan los documentos.
+class FuenteParcial(RuntimeError):
+    """Algunas empresas fallaron, pero las demás sí se leyeron (van en .hechos)."""
+    def __init__(self, mensaje: str, hechos: list):
+        super().__init__(mensaje)
+        self.hechos = hechos
+
+
+def cierres_recientes(hoy, n: int = 2) -> list[tuple[int, int]]:
+    """Últimos n cierres trimestrales ANTERIORES a hoy, del más reciente al más
+    antiguo. Ej.: 05/11/2026 -> [(2026, 9), (2026, 6)]."""
+    anio, mes = hoy.year, ((hoy.month - 1) // 3) * 3
+    salida = []
+    while len(salida) < n:
+        if mes == 0:
+            anio, mes = anio - 1, 12
+        salida.append((anio, mes))
+        mes -= 3
+    return salida
+
+
+def etiqueta_periodo(anio: int, mes: int) -> str:
+    return f"{TRIMESTRE[mes]}{anio % 100:02d}" + (" (anual)" if mes == 12 else "")
+
+
+def parsear_eeff(html: str, emp: dict, anio: int, mes: int, url_base: str) -> Hecho | None:
+    """None si el período aún no está publicado. Lanza error si la página no es
+    la esperada (para que se cuente como falla y llegue el aviso)."""
+    if "No existe informaci" in html:
+        return None                                     # aún no publicado
+    soup = BeautifulSoup(html, "html.parser")
+    infbal = soup.find(id="infbal")
+    if not infbal:
+        raise RuntimeError(f"{emp['ticker']}: la CMF devolvió una página inesperada")
+    periodo = re.sub(r"\s+", "", infbal.get_text())
+    if f"{mes:02d}/{anio}" not in periodo:
+        raise RuntimeError(f"{emp['ticker']}: la CMF devolvió otro período ({periodo})")
+    et = etiqueta_periodo(anio, mes).split(" ")[0]
+    pdf = razonado = None
+    otros = []
+    for a in soup.find_all("a", href=True):
+        if "safec_ifrs_verarchivo" not in a["href"]:
+            continue
+        texto = normalizar(a.get_text(" ", strip=True))
+        url = urljoin(url_base, a["href"])
+        if "ESTADOS FINANCIEROS (PDF)" in texto:
+            pdf = url
+        elif "RAZONADO" in texto:
+            razonado = url
+        else:
+            otros.append(a.get_text(" ", strip=True))
+    if not pdf:
+        return None          # período creado pero sin el PDF todavía: se espera
+    docs, nombres = [pdf], [f"{emp['ticker']}_EEFF_{et}.pdf"]
+    if razonado:
+        docs.append(razonado)
+        nombres.append(f"{emp['ticker']}_AnalisisRazonado_{et}.pdf")
+    return Hecho(
+        fuente="EEFF", empresa_raw=emp["razon_social"], empresa=emp,
+        fecha_hora=ahora_lima(), tipo=f"Estados financieros {etiqueta_periodo(anio, mes)}",
+        descripcion=("Otros documentos en la CMF: " + "; ".join(otros)) if otros else "",
+        documentos=docs, expediente=f"{mes:02d}/{anio}",
+        uid=f"{emp['ticker']}:{anio}{mes:02d}", nombres=nombres,
+    )
+
+
+def consultar_eeff(session: requests.Session, emp: dict, anio: int, mes: int) -> Hecho | None:
+    url = CMF_ENTIDAD.format(rut=emp["rut"], pestania=3)
+    r = session.post(url, timeout=TIMEOUT, headers={"Referer": url}, data={
+        "forma": "P", "mm": f"{mes:02d}", "aa": str(anio),
+        "tipo": "C", "tipo_norma": "IFRS"})                # consolidado, IFRS
+    r.raise_for_status()
+    r.encoding = "utf-8"
+    return parsear_eeff(r.text, emp, anio, mes, url)
+
+
+def leer_eeff(session: requests.Session, vistos: dict) -> list[Hecho]:
+    hechos, errores = [], []
+    cierres = cierres_recientes(ahora_lima().date())
+    for emp in EMPRESAS_CMF:
+        for i, (anio, mes) in enumerate(cierres):
+            if f"EEFF:{emp['ticker']}:{anio}{mes:02d}" in vistos:
+                continue                                    # ya avisado
+            try:
+                h = consultar_eeff(session, emp, anio, mes)
+            except Exception as e:
+                errores.append(f"{emp['ticker']} {mes:02d}/{anio}: {e}")
+                continue
+            if h:
+                h.aviso_inicial = (i == 0)                  # el cierre más reciente
+                hechos.append(h)
+            time.sleep(1)
+    log(f"EEFF CMF: {len(hechos)} período(s) publicado(s) sin avisar aún"
+        + (f"; {len(errores)} consulta(s) fallida(s)" if errores else ""))
+    if errores:
+        raise FuenteParcial(" | ".join(errores), hechos)
+    return hechos
+
+
+# ---------------------------------------------------------------------------
+# Fuente 5: SIMEV Colombia – Información relevante (últimos ~3 días)
+# ---------------------------------------------------------------------------
+# La página se arma con JavaScript, así que se abre con un navegador automático
+# (Playwright) tal como la vería una persona: se lee la tabla página por página
+# y, para las filas nuevas de las empresas seguidas, se presiona "DESCARGAR".
+def identificar_empresa_col(nombre: str) -> dict | None:
+    n = normalizar(nombre)
+    for emp in EMPRESAS_COL:
+        if n.startswith(normalizar(emp["razon_social"])):
+            return emp
+    return None
+
+
+def parsear_simev(html: str, solo_seguidas: bool = True) -> list[Hecho]:
+    """Filas de la tabla: Fecha y hora | Entidad | Tema | Resumen | Anexo."""
+    soup = BeautifulSoup(html, "html.parser")
+    tabla = soup.find("table")
+    if not tabla:
+        return []
+    cuerpo = tabla.find("tbody") or tabla
+    hechos = []
+    for i, tr in enumerate(cuerpo.find_all("tr", recursive=False)):
+        celdas = tr.find_all("td", recursive=False)
+        if len(celdas) < 4:
+            continue
+        fecha_txt = celdas[0].get_text(strip=True)
+        if not re.fullmatch(r"\d\d/\d\d/\d{4} \d\d:\d\d:\d\d", fecha_txt):
+            continue
+        entidad = celdas[1].get_text(" ", strip=True)
+        emp = identificar_empresa_col(entidad)
+        if not emp:
+            if solo_seguidas:
+                continue
+            emp = {"ticker": "EJEMPLO-SIMEV", "nombre": entidad}
+        tema = celdas[2].get_text(" ", strip=True)
+        resumen = celdas[3].get_text(" ", strip=True)
+        tiene_anexo = len(celdas) > 4 and bool(celdas[4].find("button"))
+        fh = datetime.strptime(fecha_txt, "%d/%m/%Y %H:%M:%S").replace(tzinfo=BOGOTA)
+        # La tabla no muestra un número de documento: el ID se arma con el contenido.
+        uid = hashlib.sha1(f"{fecha_txt}|{normalizar(entidad)}|{tema}|{resumen}"
+                           .encode("utf-8")).hexdigest()[:16]
+        hechos.append(Hecho(
+            fuente="SIMEV", empresa_raw=entidad, empresa=emp, fecha_hora=fh,
+            tipo=tema, descripcion=resumen, uid=uid, fila=i,
+            documentos=["(anexo)"] if tiene_anexo else [],
+        ))
+    return hechos
+
+
+def _nombre_anexo(h: Hecho, sugerido: str, contenido: bytes, n: int) -> str:
+    ext = Path(sugerido).suffix.lower() if sugerido else ""
+    if contenido.startswith(b"%PDF"):
+        ext = ".pdf"
+    elif not ext:
+        ext = ".zip" if contenido.startswith(b"PK") else ".bin"
+    sufijo = f"_{n}" if n > 1 else ""
+    return f"{h.empresa['ticker']}_{h.fecha_hora:%Y-%m-%d_%H%M}{sufijo}{ext}"
+
+
+def descargar_anexo_simev(page, contexto, h: Hecho) -> list[tuple[str, bytes]]:
+    """Presiona DESCARGAR en la fila del hecho y captura el archivo, venga como
+    descarga directa o como archivo que la página carga (PDF/binario)."""
+    capturas = []
+
+    def al_responder(resp):
+        try:
+            tipo = (resp.headers.get("content-type") or "").lower()
+            if any(t in tipo for t in ("pdf", "octet-stream", "msword", "officedocument", "zip")):
+                capturas.append(resp)
+        except Exception:
+            pass
+
+    contexto.on("response", al_responder)
+    adjuntos = []
+    try:
+        boton = page.locator("table tbody tr").nth(h.fila).locator("button", has_text="DESCARGAR")
+        try:
+            with page.expect_download(timeout=25000) as info:
+                boton.click()
+            dl = info.value
+            contenido = Path(dl.path()).read_bytes()
+            adjuntos.append((_nombre_anexo(h, dl.suggested_filename, contenido, 1), contenido))
+        except Exception:
+            # No fue una descarga directa: se usa lo que la página haya cargado.
+            page.wait_for_timeout(3000)
+            for n, resp in enumerate(capturas, 1):
+                try:
+                    contenido = resp.body()
+                except Exception:
+                    continue
+                if contenido:
+                    adjuntos.append((_nombre_anexo(h, "", contenido, n), contenido))
+        for extra in contexto.pages[1:]:            # pestañas que se hayan abierto
+            extra.close()
+    finally:
+        contexto.remove_listener("response", al_responder)
+    if not adjuntos:
+        log(f"  SIMEV: no se pudo obtener el anexo de {h.empresa['ticker']} {h.fecha_hora:%d/%m %H:%M}")
+    return adjuntos
+
+
+def leer_simev(session, vistos: dict, silencioso: bool,
+               solo_seguidas: bool = True, max_hechos: int | None = None) -> list[Hecho]:
+    from playwright.sync_api import sync_playwright       # solo se carga si se usa
+
+    hechos, vistos_aqui = [], set()
+    with sync_playwright() as p:
+        navegador = p.chromium.launch()
+        try:
+            contexto = navegador.new_context(locale="es-CO", accept_downloads=True,
+                                             user_agent=HEADERS["User-Agent"])
+            page = contexto.new_page()
+            page.goto(SIMEV_URL, timeout=90000, wait_until="domcontentloaded")
+            page.wait_for_selector("table tbody tr td", timeout=90000)
+            paginas = 0
+            while True:
+                paginas += 1
+                for h in parsear_simev(page.content(), solo_seguidas):
+                    if h.uid in vistos_aqui or f"SIMEV:{h.uid}" in vistos:
+                        continue
+                    vistos_aqui.add(h.uid)
+                    if h.documentos and not silencioso:
+                        h.adjuntos_listos = descargar_anexo_simev(page, contexto, h)
+                    hechos.append(h)
+                    if max_hechos and len(hechos) >= max_hechos:
+                        break
+                if max_hechos and len(hechos) >= max_hechos:
+                    break
+                siguiente = page.locator("li.pagination-next:not(.disabled) a")
+                if paginas >= SIMEV_MAX_PAGINAS or siguiente.count() == 0:
+                    break
+                primera = page.locator("table tbody tr td").first.inner_text()
+                siguiente.first.click()
+                # espera a que la tabla cambie de contenido
+                page.wait_for_function(
+                    "t => { const c = document.querySelector('table tbody tr td');"
+                    " return c && c.innerText !== t; }", arg=primera, timeout=30000)
+        finally:
+            navegador.close()
+    log(f"SIMEV: {paginas} página(s) leída(s), {len(hechos)} hecho(s) nuevos de empresas seguidas")
+    return hechos
+
+
+# ---------------------------------------------------------------------------
+# Estado (qué ya se avisó)
+# ---------------------------------------------------------------------------
+def cargar_estado() -> dict | None:
+    if not STATE_FILE.exists():
+        return None
+    return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+
+
+def guardar_estado(estado: dict) -> None:
+    # Conserva solo lo de los últimos 40 días para que el archivo no crezca.
+    limite = (ahora_lima() - timedelta(days=40)).isoformat()
+    # Los EEFF se guardan siempre (son pocos): si se borraran, se volverían a avisar.
+    estado["vistos"] = {k: v for k, v in estado["vistos"].items()
+                        if v["t"] >= limite or k.startswith("EEFF:")}
+    STATE_FILE.write_text(json.dumps(estado, ensure_ascii=False, indent=1,
+                                     sort_keys=True), encoding="utf-8")
+
+
+def es_duplicado_entre_fuentes(h: Hecho, estado: dict) -> bool:
+    """¿Un hecho de la BVL ya fue avisado desde la SMV (misma empresa, hora cercana)?"""
+    if h.fuente != "BVL":
+        return False
+    for v in estado["vistos"].values():
+        if v.get("fuente") != "SMV" or v.get("ticker") != h.empresa["ticker"]:
+            continue
+        t_smv = datetime.fromisoformat(v["t"])
+        if timedelta(0) <= h.fecha_hora - t_smv <= timedelta(minutes=VENTANA_DUPLICADO_MIN):
+            return True
+    return False
+
+
+def registrar(h: Hecho, estado: dict) -> None:
+    for d in h.doc_ids():
+        estado["vistos"][d] = {"t": h.fecha_hora.astimezone(LIMA).isoformat(),
+                               "fuente": h.fuente,
+                               "ticker": h.empresa["ticker"]}
+
+
+# ---------------------------------------------------------------------------
+# Correo
+# ---------------------------------------------------------------------------
+def descargar_pdfs(session: requests.Session, h: Hecho) -> list[tuple[str, bytes]]:
+    if h.fuente == "SIMEV":
+        return h.adjuntos_listos      # ya se descargaron con el navegador
+    adjuntos, total = [], 0
+    for i, url in enumerate(h.documentos, 1):
+        try:
+            r = session.get(url, timeout=TIMEOUT)
+            r.raise_for_status()
+        except Exception as e:                         # el link igual va en el cuerpo
+            log(f"  No se pudo descargar {url}: {e}")
+            continue
+        contenido = r.content
+        if not contenido.startswith(b"%PDF"):
+            log(f"  {url} no es un PDF; se omite como adjunto")
+            continue
+        total += len(contenido)
+        if total > MAX_ADJUNTOS_MB * 1024 * 1024:
+            log("  Límite de tamaño alcanzado; el resto va solo como link")
+            break
+        nombre = (h.nombres[i - 1] if len(h.nombres) >= i else
+                  f"{h.empresa['ticker']}_{h.fecha_hora.astimezone(LIMA):%Y-%m-%d_%H%M}"
+                  f"{'_' + str(i) if len(h.documentos) > 1 else ''}.pdf")
+        adjuntos.append((nombre, contenido))
+    return adjuntos
+
+
+def construir_correo(h: Hecho, adjuntos: list[tuple[str, bytes]],
+                     remitente: str, destinatarios: list[str],
+                     prueba: bool = False) -> EmailMessage:
+    if h.fuente == "EEFF":
+        return construir_correo_eeff(h, adjuntos, remitente, destinatarios, prueba)
+    if h.fuente == "SIMEV":
+        return construir_correo_simev(h, adjuntos, remitente, destinatarios, prueba)
+    chile = h.fuente == "CMF"
+    prefijo = "[HE]" if chile else "[HI]"
+    clase = "hecho esencial" if chile else "hecho de importancia"
+    etiqueta_num = "N° documento" if chile else "Expediente"
+    t_lima = h.fecha_hora.astimezone(LIMA)
+    tipo_corto = re.sub(r"^\d+\.\s*", "", h.tipo.split(";")[0]).strip().capitalize()[:70]
+    asunto = (f"{'[PRUEBA] ' if prueba else ''}{prefijo} {h.empresa['ticker']} – "
+              f"{tipo_corto} – {t_lima:%d/%m %H:%M}")
+    hora_txt = f"{t_lima:%d/%m/%Y %H:%M} (hora de Lima)"
+    if chile:
+        hora_txt += f"  |  {h.fecha_hora:%H:%M} hora de Chile"
+    links_txt = "\n".join(f"  - {u}" for u in h.documentos) or "  (sin documentos)"
+    texto = (
+        f"{h.empresa['nombre']} publicó un {clase}.\n\n"
+        f"Empresa:      {h.empresa_raw}\n"
+        f"{'Materia' if chile else 'Tipo'}:{' ' * (6 if chile else 9)}{h.tipo}\n"
+        f"Publicado:    {hora_txt}\n"
+        f"Fuente:       {h.fuente}{'  |  ' + etiqueta_num + ' ' + h.expediente if h.expediente else ''}\n\n"
+        + (f"Descripción:\n{h.descripcion}\n\n" if h.descripcion else
+           ("" if chile else "Descripción:\n(sin descripción)\n\n")) +
+        f"Documentos ({len(adjuntos)} adjunto(s)):\n{links_txt}\n\n"
+        f"—\nAviso automático del monitor de construcción y conglomerados.\n"
+        f"Detectado: {ahora_lima():%d/%m/%Y %H:%M:%S}\n"
+    )
+    msg = EmailMessage()
+    msg["Subject"] = asunto
+    msg["From"] = f"Monitor Construcción y Conglomerados <{remitente}>"
+    msg["To"] = ", ".join(destinatarios)
+    msg.set_content(texto)
+    for nombre, contenido in adjuntos:
+        msg.add_attachment(contenido, maintype="application", subtype="pdf",
+                           filename=nombre)
+    return msg
+
+
+def construir_correo_eeff(h: Hecho, adjuntos: list[tuple[str, bytes]],
+                          remitente: str, destinatarios: list[str],
+                          prueba: bool = False) -> EmailMessage:
+    t = ahora_lima()
+    periodo = h.tipo.replace("Estados financieros ", "")
+    asunto = (f"{'[PRUEBA] ' if prueba else ''}[EEFF] {h.empresa['ticker']} – "
+              f"Estados financieros {periodo} – {t:%d/%m %H:%M}")
+    nombres_adj = "\n".join(f"  - {n}" for n, _ in adjuntos) or "  (no se pudieron adjuntar)"
+    pagina = CMF_ENTIDAD.format(rut=h.empresa["rut"], pestania=3)
+    texto = (
+        f"{h.empresa['nombre']} publicó sus estados financieros {periodo} en la CMF.\n\n"
+        f"Empresa:      {h.empresa_raw}\n"
+        f"Período:      {h.expediente} (consolidado, IFRS)\n"
+        f"Detectado:    {t:%d/%m/%Y %H:%M} (hora de Lima)  |  "
+        f"{t.astimezone(SANTIAGO):%H:%M} hora de Chile\n"
+        f"Fuente:       CMF – Información Financiera\n\n"
+        + (f"{h.descripcion}\n\n" if h.descripcion else "") +
+        f"Adjuntos ({len(adjuntos)}):\n{nombres_adj}\n\n"
+        f"El XBRL y los demás archivos están en la página de la empresa en la CMF\n"
+        f"(pestaña Información Financiera, elegir período {h.expediente}):\n  {pagina}\n\n"
+        f"—\nAviso automático del monitor de construcción y conglomerados.\n"
+        f"La hora es la de detección (el monitor revisa cada ~10 minutos).\n"
+    )
+    msg = EmailMessage()
+    msg["Subject"] = asunto
+    msg["From"] = f"Monitor Construcción y Conglomerados <{remitente}>"
+    msg["To"] = ", ".join(destinatarios)
+    msg.set_content(texto)
+    for nombre, contenido in adjuntos:
+        msg.add_attachment(contenido, maintype="application", subtype="pdf",
+                           filename=nombre)
+    return msg
+
+
+def construir_correo_simev(h: Hecho, adjuntos: list[tuple[str, bytes]],
+                           remitente: str, destinatarios: list[str],
+                           prueba: bool = False) -> EmailMessage:
+    t_lima = h.fecha_hora.astimezone(LIMA)
+    tema_corto = h.tipo.rstrip(".").capitalize()[:70]
+    asunto = (f"{'[PRUEBA] ' if prueba else ''}[IR] {h.empresa['ticker']} – "
+              f"{tema_corto} – {t_lima:%d/%m %H:%M}")
+    if adjuntos:
+        anexos = "\n".join(f"  - {n}" for n, _ in adjuntos)
+    elif h.documentos:
+        anexos = "  (no se pudo adjuntar: descárgalo desde el SIMEV)"
+    else:
+        anexos = "  (sin anexo)"
+    texto = (
+        f"{h.empresa['nombre']} publicó información relevante en el SIMEV (Colombia).\n\n"
+        f"Entidad:      {h.empresa_raw}\n"
+        f"Tema:         {h.tipo}\n"
+        f"Publicado:    {t_lima:%d/%m/%Y %H:%M} (hora de Lima y de Colombia)\n"
+        f"Fuente:       SIMEV – Superintendencia Financiera de Colombia\n\n"
+        f"Resumen:\n{h.descripcion or '(sin resumen)'}\n\n"
+        f"Anexo ({len(adjuntos)} adjunto(s)):\n{anexos}\n\n"
+        f"Página: {SIMEV_URL}\n\n"
+        f"—\nAviso automático del monitor de construcción y conglomerados.\n"
+        f"Detectado: {ahora_lima():%d/%m/%Y %H:%M:%S}\n"
+    )
+    msg = EmailMessage()
+    msg["Subject"] = asunto
+    msg["From"] = f"Monitor Construcción y Conglomerados <{remitente}>"
+    msg["To"] = ", ".join(destinatarios)
+    msg.set_content(texto)
+    for nombre, contenido in adjuntos:
+        if nombre.endswith(".pdf"):
+            msg.add_attachment(contenido, maintype="application", subtype="pdf", filename=nombre)
+        else:
+            msg.add_attachment(contenido, maintype="application",
+                               subtype="octet-stream", filename=nombre)
+    return msg
+
+
+def enviar(msg: EmailMessage, usuario: str, clave: str) -> None:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=60) as s:
+        s.login(usuario, clave)
+        s.send_message(msg)
+
+
+def credenciales() -> tuple[str, str, list[str]]:
+    usuario = os.environ.get("GMAIL_USER", "").strip()
+    clave = os.environ.get("GMAIL_APP_PASSWORD", "").replace(" ", "").strip()
+    destinos = [d.strip() for d in os.environ.get("EMAIL_TO", "").split(",") if d.strip()]
+    faltan = [n for n, v in (("GMAIL_USER", usuario), ("GMAIL_APP_PASSWORD", clave),
+                             ("EMAIL_TO", destinos)) if not v]
+    if faltan:
+        sys.exit(f"Faltan los Secrets: {', '.join(faltan)}")
+    return usuario, clave, destinos
+
+
+# ---------------------------------------------------------------------------
+# Programa principal
+# ---------------------------------------------------------------------------
+def modo_prueba(session: requests.Session) -> None:
+    usuario, clave, destinos = credenciales()
+    hoy = ahora_lima().date()
+    data = consultar_bvl(session, f"{hoy - timedelta(days=120)}", f"{hoy}",
+                         rpj=EMPRESAS[0]["bvl_rpj"], size=5)
+    hechos = parsear_bvl(data)
+    if not hechos:
+        sys.exit("No se encontró ningún hecho reciente para la prueba")
+    pruebas = [hechos[0]]
+    # Prueba de la CMF: el hecho más reciente de Salfacorp/Sigdo Koppers; si no hubo
+    # ninguno en 7 días, el más reciente de cualquier empresa (marcado EJEMPLO-CMF).
+    try:
+        r = session.get(CMF_URL, timeout=TIMEOUT)
+        r.raise_for_status()
+        r.encoding = r.encoding or "utf-8"
+        cmf = parsear_cmf(r.text) or parsear_cmf(r.text, solo_seguidas=False)
+        if cmf:
+            pruebas.append(max(cmf, key=lambda x: x.fecha_hora))
+        else:
+            log("CMF: la lista no trajo hechos para la prueba")
+    except Exception as e:
+        log(f"ERROR leyendo CMF en la prueba: {e}")
+    # Prueba de EEFF: el último trimestre ya publicado de la primera empresa de la CMF.
+    try:
+        emp = EMPRESAS_CMF[0]
+        for anio, mes in cierres_recientes(hoy, n=4):
+            h = consultar_eeff(session, emp, anio, mes)
+            if h:
+                pruebas.append(h)
+                break
+        else:
+            log("EEFF: no se encontró un trimestre publicado para la prueba")
+    except Exception as e:
+        log(f"ERROR leyendo EEFF en la prueba: {e}")
+    # Prueba del SIMEV: la información relevante más reciente de las empresas
+    # colombianas; si no hubo en ~3 días, la más reciente de cualquier entidad
+    # (marcada EJEMPLO-SIMEV). Sirve para comprobar que el anexo se descarga.
+    try:
+        sim = leer_simev(session, {}, False, max_hechos=1)
+        if not sim:
+            sim = leer_simev(session, {}, False, solo_seguidas=False, max_hechos=1)
+        pruebas += sim
+        for h in sim:
+            log(f"SIMEV prueba: {h.empresa_raw} | {len(h.adjuntos_listos)} anexo(s): "
+                f"{[n for n, _ in h.adjuntos_listos]}")
+    except Exception as e:
+        log(f"ERROR leyendo SIMEV en la prueba: {e}")
+    for h in pruebas:
+        adj = descargar_pdfs(session, h)
+        enviar(construir_correo(h, adj, usuario, destinos, prueba=True), usuario, clave)
+        log(f"Correo de PRUEBA enviado a {len(destinos)} destinatario(s) con "
+            f"{len(adj)} adjunto(s): {h.fuente} {h.empresa['ticker']} "
+            f"{h.fecha_hora.astimezone(LIMA):%d/%m %H:%M} (Lima)")
+
+
+def main() -> int:
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    if os.environ.get("TEST_MODE") == "1":
+        modo_prueba(session)
+        return 0
+
+    estado = cargar_estado()
+    primera_vez = estado is None
+    if primera_vez:
+        estado = {"vistos": {}, "heartbeat": ahora_lima().isoformat()}
+    # Compatibilidad con un seen.json anterior: SMV y BVL ya estaban iniciadas.
+    estado.setdefault("fuentes_iniciadas", [] if primera_vez else ["SMV", "BVL"])
+    estado.setdefault("fallas", {})
+    estado_antes = json.dumps(estado, sort_keys=True)
+
+    # Empresas de la CMF ya iniciadas (para que una empresa agregada después, como
+    # SM SAAM, no dispare de golpe sus hechos de los últimos 7 días).
+    estado.setdefault("empresas_cmf_iniciadas",
+                      [e["ticker"] for e in EMPRESAS_CMF] if "CMF" in estado["fuentes_iniciadas"] else [])
+
+    fuentes = (("SMV", leer_smv), ("BVL", leer_bvl), ("CMF", leer_cmf),
+               ("EEFF", lambda s: leer_eeff(s, estado["vistos"])),
+               ("SIMEV", lambda s: leer_simev(s, estado["vistos"],
+                                              "SIMEV" not in estado["fuentes_iniciadas"])))
+    hechos, errores = [], {}
+    for nombre, lector in fuentes:
+        try:
+            hechos += lector(session)
+        except FuenteParcial as e:                 # algunas empresas sí se leyeron
+            hechos += e.hechos
+            errores[nombre] = str(e)
+            log(f"ERROR parcial leyendo {nombre}: {e}")
+        except Exception as e:
+            errores[nombre] = str(e)
+            log(f"ERROR leyendo {nombre}: {e}")
+
+    alertas = actualizar_fallas(estado, [n for n, _ in fuentes], errores)
+
+    if len(errores) == len(fuentes):
+        # Ninguna fuente respondió: falla la ejecución para que GitHub lo marque en rojo.
+        log("Ninguna fuente respondió.")
+        enviar_alertas(alertas)
+        if json.dumps(estado, sort_keys=True) != estado_antes:
+            guardar_estado(estado)
+        return 1
+
+    # Fuentes que se leen por primera vez: se registra lo existente sin avisar
+    # (evita recibir de golpe hechos de días anteriores).
+    nuevas_fuentes = {n for n, _ in fuentes if n not in estado["fuentes_iniciadas"]}
+    cmf_iniciadas = set(estado["empresas_cmf_iniciadas"])
+
+    # SMV primero: es la fuente más rápida y la que manda en la deduplicación.
+    hechos.sort(key=lambda h: (h.fuente != "SMV", h.fecha_hora))
+    nuevos = []
+    for h in hechos:
+        if h.uid:
+            if any(d in estado["vistos"] for d in h.doc_ids()):
+                continue
+        elif h.documentos:
+            # Solo los documentos que aún no se avisaron (cubre el caso de un
+            # documento nuevo agregado a un expediente que ya conocíamos).
+            pendientes = [u for u in h.documentos
+                          if f"{h.fuente}:{u}" not in estado["vistos"]]
+            if not pendientes:
+                continue
+            h.documentos = pendientes
+        elif any(d in estado["vistos"] for d in h.doc_ids()):
+            continue
+        if es_duplicado_entre_fuentes(h, estado):
+            registrar(h, estado)
+            continue
+        registrar(h, estado)
+        if h.fuente in nuevas_fuentes and not h.aviso_inicial:
+            continue                       # arranque silencioso de esa fuente
+        if h.fuente == "CMF" and h.empresa["ticker"] not in cmf_iniciadas:
+            continue                       # empresa recién agregada: arranque silencioso
+        nuevos.append(h)
+
+    iniciadas_ahora = {n for n in nuevas_fuentes if n not in errores}
+    if iniciadas_ahora:
+        estado["fuentes_iniciadas"] = sorted(set(estado["fuentes_iniciadas"]) | iniciadas_ahora)
+        log(f"Primera lectura de {', '.join(sorted(iniciadas_ahora))}: se registró lo "
+            "existente sin enviar correos (salvo EEFF del último trimestre). "
+            "Desde ahora solo se avisarán los nuevos.")
+    if "CMF" not in errores:
+        estado["empresas_cmf_iniciadas"] = sorted(e["ticker"] for e in EMPRESAS_CMF)
+
+    enviar_alertas(alertas)
+
+    fallidos = 0
+    if nuevos:
+        usuario, clave, destinos = credenciales()
+        for h in nuevos:
+            try:
+                adj = descargar_pdfs(session, h)
+                enviar(construir_correo(h, adj, usuario, destinos), usuario, clave)
+                log(f"ENVIADO: {h.empresa['ticker']} "
+                    f"{h.fecha_hora.astimezone(LIMA):%d/%m %H:%M} (Lima) "
+                    f"({h.fuente}, {len(adj)} adjunto(s))")
+            except Exception as e:
+                # No se marca como visto: se reintenta en la próxima revisión.
+                fallidos += 1
+                for d in h.doc_ids():
+                    estado["vistos"].pop(d, None)
+                log(f"ERROR enviando {h.empresa['ticker']} {h.fecha_hora:%d/%m %H:%M}: {e}")
+            time.sleep(1)
+    else:
+        log("Sin hechos nuevos.")
+
+    # "Latido": actualiza el archivo cada ~25 días aunque no haya novedades,
+    # porque GitHub desactiva los horarios de repos públicos sin actividad en 60 días.
+    ultimo = datetime.fromisoformat(estado.get("heartbeat", "2000-01-01T00:00:00-05:00"))
+    if ahora_lima() - ultimo > timedelta(days=HEARTBEAT_DIAS):
+        estado["heartbeat"] = ahora_lima().isoformat()
+    if json.dumps(estado, sort_keys=True) != estado_antes:
+        guardar_estado(estado)
+    return 1 if fallidos else 0
+
+
+# ---------------------------------------------------------------------------
+# Avisos cuando una fuente deja de responder
+# ---------------------------------------------------------------------------
+def actualizar_fallas(estado: dict, nombres: list[str], errores: dict) -> list[tuple[str, str]]:
+    """Cuenta fallas seguidas por fuente. Devuelve alertas (asunto, texto) a enviar:
+    una al llegar a ALERTA_FALLAS y otra cuando la fuente se recupera."""
+    alertas = []
+    for n in nombres:
+        previas = estado["fallas"].get(n, 0)
+        if n in errores:
+            estado["fallas"][n] = previas + 1
+            if previas + 1 == ALERTA_FALLAS:
+                alertas.append((
+                    f"[MONITOR] La fuente {n} no responde desde hace ~1 hora",
+                    f"El monitor no puede leer {n} desde hace {ALERTA_FALLAS} revisiones "
+                    f"seguidas (~1 hora).\n\nÚltimo error:\n{errores[n]}\n\n"
+                    "Las demás fuentes siguen funcionando. Si el problema continúa, "
+                    "puede que la página haya cambiado y haya que ajustar el código.\n"
+                    "Te llegará otro aviso cuando se recupere."))
+        else:
+            if previas >= ALERTA_FALLAS:
+                alertas.append((f"[MONITOR] La fuente {n} volvió a funcionar",
+                                f"{n} responde normalmente otra vez (tras {previas} "
+                                "revisiones fallidas)."))
+            estado["fallas"].pop(n, None)
+    return alertas
+
+
+def enviar_alertas(alertas: list[tuple[str, str]]) -> None:
+    if not alertas:
+        return
+    try:
+        usuario, clave, destinos = credenciales()
+        for asunto, texto in alertas:
+            msg = EmailMessage()
+            msg["Subject"] = asunto
+            msg["From"] = f"Monitor Construcción y Conglomerados <{usuario}>"
+            msg["To"] = ", ".join(destinos)
+            msg.set_content(texto + f"\n\n—\n{ahora_lima():%d/%m/%Y %H:%M} (hora de Lima)\n")
+            enviar(msg, usuario, clave)
+            log(f"ALERTA enviada: {asunto}")
+    except BaseException as e:                 # una alerta fallida no debe frenar el resto
+        log(f"No se pudo enviar la alerta: {e}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
