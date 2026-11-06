@@ -595,7 +595,10 @@ def leer_simev(session, vistos: dict, silencioso: bool,
     with sync_playwright() as p:
         navegador = p.chromium.launch()
         try:
+            # La página escribe la hora según la zona horaria del navegador; los
+            # servidores de GitHub están en UTC (5 horas más), así que se fija la de Colombia.
             contexto = navegador.new_context(locale="es-CO", accept_downloads=True,
+                                             timezone_id="America/Bogota",
                                              user_agent=HEADERS["User-Agent"])
             page = contexto.new_page()
             page.goto(SIMEV_URL, timeout=90000, wait_until="domcontentloaded")
