@@ -20,23 +20,23 @@ concurrency:
 jobs:
   revisar:
     runs-on: ubuntu-latest
+    # El monitor corre dentro del contenedor oficial de Playwright (Microsoft):
+    # trae su propio sistema (Ubuntu 24.04 "noble"), Python y el navegador ya
+    # instalados, así que no importa qué versión de Ubuntu use GitHub.
+    # La versión (v1.56.0) debe ser la misma que la de requirements_construccion.txt.
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.56.0-noble
+      options: --ipc=host
     timeout-minutes: 15
     steps:
+      - name: Preparar git
+        run: |
+          apt-get update -qq && apt-get install -y -qq git > /dev/null
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - run: pip install -r requirements_construccion.txt
-
-      # Navegador automático para el SIMEV (Colombia). Se guarda en caché para
-      # no descargarlo completo en cada revisión.
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('requirements_construccion.txt') }}
-      - run: python -m playwright install --with-deps chromium
+      - run: python3 -m pip install --break-system-packages -q -r requirements_construccion.txt
 
       - name: Revisar Peru, Chile y Colombia
         env:
@@ -44,11 +44,12 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           TEST_MODE: ${{ inputs.prueba && '1' || '0' }}
-        run: python monitor_construccion.py
+        run: python3 monitor_construccion.py
 
       - name: Guardar lo ya avisado
         if: always() && inputs.prueba != true
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           if [ -n "$(git status --porcelain seen.json)" ]; then
             git config user.name  "monitor-bot"
             git config user.email "monitor-bot@users.noreply.github.com"
