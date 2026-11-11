@@ -28,6 +28,11 @@
    "t": "2026-11-09T17:11:28-05:00",
    "ticker": "CPACASC1"
   },
+  "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261110191001/CPSAA32REL32ACC32ADS32AL3230102026.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-10T19:16:56-05:00",
+   "ticker": "CPACASC1"
+  },
   "CMF:2026110702307": {
    "fuente": "CMF",
    "t": "2026-11-03T07:16:03-05:00",
@@ -57,6 +62,11 @@
    "fuente": "SIMEV",
    "t": "2026-11-04T15:08:26-05:00",
    "ticker": "CORFICOLCF"
+  },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={60F1C7A1-0000-C717-A84F-4D8F2D29C606}": {
+   "fuente": "SMV",
+   "t": "2026-11-10T19:10:00-05:00",
+   "ticker": "CPACASC1"
   },
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={90DDC0A1-0000-CE10-9527-3C082CDCE181}": {
    "fuente": "SMV",
