@@ -82,6 +82,11 @@
    "fuente": "SMV",
    "t": "2026-11-09T17:07:00-05:00",
    "ticker": "CPACASC1"
+  },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={E03FCDA1-0000-CE11-A61D-E4489B0C7EEB}": {
+   "fuente": "SMV",
+   "t": "2026-11-11T19:54:00-05:00",
+   "ticker": "CPACASC1"
   }
  }
 }
