@@ -33,6 +33,11 @@
    "t": "2026-11-10T19:16:56-05:00",
    "ticker": "CPACASC1"
   },
+  "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261111195401/HI3245322DA32SUBSANACI211N32ASPI.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-11T20:02:21-05:00",
+   "ticker": "CPACASC1"
+  },
   "CMF:2026110702307": {
    "fuente": "CMF",
    "t": "2026-11-03T07:16:03-05:00",
