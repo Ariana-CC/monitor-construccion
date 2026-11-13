@@ -83,9 +83,19 @@
    "t": "2026-11-04T15:08:26-05:00",
    "ticker": "CORFICOLCF"
   },
+  "SIMEV:88345f54891dce72": {
+   "fuente": "SIMEV",
+   "t": "2026-11-12T18:56:37-05:00",
+   "ticker": "CEMARGOS"
+  },
   "SIMEV:f00c9ac95fdd6f98": {
    "fuente": "SIMEV",
    "t": "2026-11-10T19:56:18-05:00",
+   "ticker": "CELSIA"
+  },
+  "SIMEV:fe14cff0edd47f48": {
+   "fuente": "SIMEV",
+   "t": "2026-11-12T18:57:11-05:00",
    "ticker": "CELSIA"
   },
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={60F1C7A1-0000-C717-A84F-4D8F2D29C606}": {
