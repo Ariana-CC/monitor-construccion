@@ -83,6 +83,11 @@
    "t": "2026-11-12T17:05:12-05:00",
    "ticker": "CEMARGOS"
   },
+  "SIMEV:76b9eb875c50e1d2": {
+   "fuente": "SIMEV",
+   "t": "2026-11-13T12:46:05-05:00",
+   "ticker": "GRUPOSURA"
+  },
   "SIMEV:822e99a977c6692a": {
    "fuente": "SIMEV",
    "t": "2026-11-13T09:22:21-05:00",
@@ -97,6 +102,11 @@
    "fuente": "SIMEV",
    "t": "2026-11-12T18:56:37-05:00",
    "ticker": "CEMARGOS"
+  },
+  "SIMEV:ad2e03eb4eddc3a6": {
+   "fuente": "SIMEV",
+   "t": "2026-11-13T12:47:19-05:00",
+   "ticker": "GRUPOSURA"
   },
   "SIMEV:f00c9ac95fdd6f98": {
    "fuente": "SIMEV",
