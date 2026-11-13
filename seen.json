@@ -78,6 +78,11 @@
    "t": "2026-11-12T17:05:12-05:00",
    "ticker": "CEMARGOS"
   },
+  "SIMEV:822e99a977c6692a": {
+   "fuente": "SIMEV",
+   "t": "2026-11-13T09:22:21-05:00",
+   "ticker": "GRUPOARGOS"
+  },
   "SIMEV:855414ff77f31198": {
    "fuente": "SIMEV",
    "t": "2026-11-04T15:08:26-05:00",
