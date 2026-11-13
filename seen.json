@@ -73,6 +73,11 @@
    "t": "2026-11-04T06:55:30-05:00",
    "ticker": "GRUPOARGOS"
   },
+  "SIMEV:64d0e2fc859b9425": {
+   "fuente": "SIMEV",
+   "t": "2026-11-13T11:18:11-05:00",
+   "ticker": "CORFICOLCF"
+  },
   "SIMEV:66f915da0ab5f04b": {
    "fuente": "SIMEV",
    "t": "2026-11-12T17:05:12-05:00",
