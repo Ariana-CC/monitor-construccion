@@ -108,6 +108,11 @@
    "t": "2026-11-12T18:56:37-05:00",
    "ticker": "CEMARGOS"
   },
+  "SIMEV:931b17ddab46f58b": {
+   "fuente": "SIMEV",
+   "t": "2026-11-13T17:42:05-05:00",
+   "ticker": "CELSIA"
+  },
   "SIMEV:ad2e03eb4eddc3a6": {
    "fuente": "SIMEV",
    "t": "2026-11-13T12:47:19-05:00",
