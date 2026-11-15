@@ -73,6 +73,11 @@
    "t": "2026-11-13T17:18:22-05:00",
    "ticker": "GRUPOARGOS"
   },
+  "SIMEV:42019766075cf300": {
+   "fuente": "SIMEV",
+   "t": "2026-11-14T19:52:02-05:00",
+   "ticker": "PROMIGAS"
+  },
   "SIMEV:421fd488caa7559f": {
    "fuente": "SIMEV",
    "t": "2026-11-11T22:39:29-05:00",
