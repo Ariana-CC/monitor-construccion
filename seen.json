@@ -3,7 +3,10 @@
   "SALFACORP",
   "SK"
  ],
- "fallas": {},
+ "fallas": {
+  "CMF": 1,
+  "EEFF": 1
+ },
  "fuentes_iniciadas": [
   "BVL",
   "CMF",
@@ -16,6 +19,21 @@
   "BVL:https://documents.bvl.com.pe/hhii/B30121/20261116152501/CIB301212026TC301.PDF": {
    "fuente": "BVL",
    "t": "2026-11-16T15:29:10-05:00",
+   "ticker": "UNACEMC1"
+  },
+  "BVL:https://documents.bvl.com.pe/hhii/B30121/20261116172701/HDI32PUBLICACION32NEWSLETTER323T26.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-16T17:34:15-05:00",
+   "ticker": "UNACEMC1"
+  },
+  "BVL:https://documents.bvl.com.pe/hhii/B30121/20261116172701/NEWSLETTER323Q2632ENG32VF.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-16T17:34:15-05:00",
+   "ticker": "UNACEMC1"
+  },
+  "BVL:https://documents.bvl.com.pe/hhii/B30121/20261116172701/NEWSLETTER323T2632ESP32VF.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-16T17:34:15-05:00",
    "ticker": "UNACEMC1"
   },
   "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261104123001/HI324532PUBLICACION32AVISO32DE32OFERTA.PDF": {
