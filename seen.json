@@ -168,10 +168,25 @@
    "t": "2026-11-16T15:25:00-05:00",
    "ticker": "UNACEMC1"
   },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={907AE6A1-0000-C715-908A-708163D2FC5C}": {
+   "fuente": "SMV",
+   "t": "2026-11-16T17:27:00-05:00",
+   "ticker": "UNACEMC1"
+  },
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={90DDC0A1-0000-CE10-9527-3C082CDCE181}": {
    "fuente": "SMV",
    "t": "2026-11-09T10:11:00-05:00",
    "ticker": "CPACASC1"
+  },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={A07AE6A1-0000-C017-9100-DA17E21058C8}": {
+   "fuente": "SMV",
+   "t": "2026-11-16T17:27:00-05:00",
+   "ticker": "UNACEMC1"
+  },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={A07AE6A1-0000-C33E-A822-251AC99E9FE2}": {
+   "fuente": "SMV",
+   "t": "2026-11-16T17:27:00-05:00",
+   "ticker": "UNACEMC1"
   },
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={D05AC2A1-0000-C41D-9212-F8A8FA615695}": {
    "fuente": "SMV",
