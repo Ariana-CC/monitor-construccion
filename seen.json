@@ -13,6 +13,11 @@
  ],
  "heartbeat": "2026-11-05T22:34:12.409136-05:00",
  "vistos": {
+  "BVL:https://documents.bvl.com.pe/hhii/B30121/20261116152501/CIB301212026TC301.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-16T15:29:10-05:00",
+   "ticker": "UNACEMC1"
+  },
   "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261104123001/HI324532PUBLICACION32AVISO32DE32OFERTA.PDF": {
    "fuente": "BVL",
    "t": "2026-11-04T12:34:47-05:00",
@@ -157,6 +162,11 @@
    "fuente": "SMV",
    "t": "2026-11-10T19:10:00-05:00",
    "ticker": "CPACASC1"
+  },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={800AE6A1-0000-C32F-B5B2-B32EC0D619B1}": {
+   "fuente": "SMV",
+   "t": "2026-11-16T15:25:00-05:00",
+   "ticker": "UNACEMC1"
   },
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={90DDC0A1-0000-CE10-9527-3C082CDCE181}": {
    "fuente": "SMV",
