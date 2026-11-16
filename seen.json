@@ -3,10 +3,7 @@
   "SALFACORP",
   "SK"
  ],
- "fallas": {
-  "CMF": 1,
-  "EEFF": 1
- },
+ "fallas": {},
  "fuentes_iniciadas": [
   "BVL",
   "CMF",
@@ -169,6 +166,11 @@
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={1061D7A1-0000-C31A-9172-9AA06B7D03AC}": {
    "fuente": "SMV",
    "t": "2026-11-13T19:06:00-05:00",
+   "ticker": "CPACASC1"
+  },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={508AE6A1-0000-C83E-8EE4-9355E3A95ECC}": {
+   "fuente": "SMV",
+   "t": "2026-11-16T17:45:00-05:00",
    "ticker": "CPACASC1"
   },
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={60CDE5A1-0000-CB18-B76D-0EF50EBA13BF}": {
