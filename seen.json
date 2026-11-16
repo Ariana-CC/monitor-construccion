@@ -68,6 +68,11 @@
    "t": "2026-11-16T14:24:08-05:00",
    "ticker": "CPACASC1"
   },
+  "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261116174501/CARTACD00059569520261116173228.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-16T17:54:17-05:00",
+   "ticker": "CPACASC1"
+  },
   "CMF:2026110702307": {
    "fuente": "CMF",
    "t": "2026-11-03T07:16:03-05:00",
