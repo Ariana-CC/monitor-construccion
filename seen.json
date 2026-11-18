@@ -38,6 +38,11 @@
    "t": "2026-11-18T16:15:02-05:00",
    "ticker": "UNACEMC1"
   },
+  "BVL:https://documents.bvl.com.pe/hhii/B30121/20261118162001/HDI ELECCION DIRECTOR INDEPENDIENTE.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-18T17:49:25-05:00",
+   "ticker": "UNACEMC1"
+  },
   "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261104123001/HI324532PUBLICACION32AVISO32DE32OFERTA.PDF": {
    "fuente": "BVL",
    "t": "2026-11-04T12:34:47-05:00",
@@ -76,6 +81,11 @@
   "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261116174501/CARTACD00059569520261116173228.PDF": {
    "fuente": "BVL",
    "t": "2026-11-16T17:54:17-05:00",
+   "ticker": "CPACASC1"
+  },
+  "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261118174401/CARTACD00059569520261118173745.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-18T17:49:25-05:00",
    "ticker": "CPACASC1"
   },
   "CMF:2026110702307": {
@@ -206,6 +216,11 @@
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={508AE6A1-0000-C83E-8EE4-9355E3A95ECC}": {
    "fuente": "SMV",
    "t": "2026-11-16T17:45:00-05:00",
+   "ticker": "CPACASC1"
+  },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={50D5F0A1-0000-CE11-BB85-4CC4FD2890A1}": {
+   "fuente": "SMV",
+   "t": "2026-11-18T17:44:00-05:00",
    "ticker": "CPACASC1"
   },
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={60CDE5A1-0000-CB18-B76D-0EF50EBA13BF}": {
