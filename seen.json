@@ -33,6 +33,11 @@
    "t": "2026-11-16T17:34:15-05:00",
    "ticker": "UNACEMC1"
   },
+  "BVL:https://documents.bvl.com.pe/hhii/B30121/20261118161101/CARTAB301219569520261118113533.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-18T16:15:02-05:00",
+   "ticker": "UNACEMC1"
+  },
   "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261104123001/HI324532PUBLICACION32AVISO32DE32OFERTA.PDF": {
    "fuente": "BVL",
    "t": "2026-11-04T12:34:47-05:00",
@@ -193,6 +198,11 @@
    "t": "2026-11-13T19:06:00-05:00",
    "ticker": "CPACASC1"
   },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={4088F0A1-0000-C01B-941A-C21CC3ACEEB9}": {
+   "fuente": "SMV",
+   "t": "2026-11-18T16:20:00-05:00",
+   "ticker": "UNACEMC1"
+  },
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={508AE6A1-0000-C83E-8EE4-9355E3A95ECC}": {
    "fuente": "SMV",
    "t": "2026-11-16T17:45:00-05:00",
@@ -216,6 +226,11 @@
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={907AE6A1-0000-C715-908A-708163D2FC5C}": {
    "fuente": "SMV",
    "t": "2026-11-16T17:27:00-05:00",
+   "ticker": "UNACEMC1"
+  },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={9080F0A1-0000-C31D-831B-9B4D7C6EC579}": {
+   "fuente": "SMV",
+   "t": "2026-11-18T16:11:00-05:00",
    "ticker": "UNACEMC1"
   },
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={90DDC0A1-0000-CE10-9527-3C082CDCE181}": {
