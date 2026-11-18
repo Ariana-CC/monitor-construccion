@@ -173,6 +173,11 @@
    "t": "2026-11-13T12:47:19-05:00",
    "ticker": "GRUPOSURA"
   },
+  "SIMEV:c1ddf37fbe50834a": {
+   "fuente": "SIMEV",
+   "t": "2026-11-18T07:57:22-05:00",
+   "ticker": "GRUPOARGOS"
+  },
   "SIMEV:f00c9ac95fdd6f98": {
    "fuente": "SIMEV",
    "t": "2026-11-10T19:56:18-05:00",
