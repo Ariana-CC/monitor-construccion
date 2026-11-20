@@ -213,6 +213,11 @@
    "t": "2026-11-13T19:06:00-05:00",
    "ticker": "CPACASC1"
   },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={3070FAA1-0000-C817-940B-453B36515DAD}": {
+   "fuente": "SMV",
+   "t": "2026-11-20T14:29:00-05:00",
+   "ticker": "CPACASC1"
+  },
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={4088F0A1-0000-C01B-941A-C21CC3ACEEB9}": {
    "fuente": "SMV",
    "t": "2026-11-18T16:20:00-05:00",
