@@ -4,7 +4,9 @@
   "SK"
  ],
  "fallas": {
-  "SMV": 177
+  "CMF": 1,
+  "EEFF": 1,
+  "SMV": 178
  },
  "fuentes_iniciadas": [
   "BVL",
