@@ -93,6 +93,11 @@
    "t": "2026-11-20T14:35:10-05:00",
    "ticker": "CPACASC1"
   },
+  "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261123150301/HI324532RESULTADOS32DE32LA32OPA.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-23T15:06:45-05:00",
+   "ticker": "CPACASC1"
+  },
   "CMF:2026110702307": {
    "fuente": "CMF",
    "t": "2026-11-03T07:16:03-05:00",
@@ -241,6 +246,11 @@
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={50D5F0A1-0000-CE11-BB85-4CC4FD2890A1}": {
    "fuente": "SMV",
    "t": "2026-11-18T17:44:00-05:00",
+   "ticker": "CPACASC1"
+  },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={60020AA2-0000-C019-AFF9-4571A30B69B7}": {
+   "fuente": "SMV",
+   "t": "2026-11-23T15:03:00-05:00",
    "ticker": "CPACASC1"
   },
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={60CDE5A1-0000-CB18-B76D-0EF50EBA13BF}": {
