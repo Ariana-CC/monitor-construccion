@@ -98,6 +98,11 @@
    "t": "2026-11-23T15:06:45-05:00",
    "ticker": "CPACASC1"
   },
+  "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261124184101/HI324532LIQUIDACION32Y32ACALARACION32OPA.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-24T18:47:16-05:00",
+   "ticker": "CPACASC1"
+  },
   "CMF:2026110702307": {
    "fuente": "CMF",
    "t": "2026-11-03T07:16:03-05:00",
@@ -231,6 +236,11 @@
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={3070FAA1-0000-C817-940B-453B36515DAD}": {
    "fuente": "SMV",
    "t": "2026-11-20T14:29:00-05:00",
+   "ticker": "CPACASC1"
+  },
+  "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={30F00FA2-0000-C61D-94D9-18CDD8469A5D}": {
+   "fuente": "SMV",
+   "t": "2026-11-24T18:41:00-05:00",
    "ticker": "CPACASC1"
   },
   "SMV:https://www.smv.gob.pe/ConsultasP8/documento.aspx?vidDoc={4088F0A1-0000-C01B-941A-C21CC3ACEEB9}": {
