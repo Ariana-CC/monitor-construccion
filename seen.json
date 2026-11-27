@@ -118,6 +118,16 @@
    "t": "2026-11-26T12:18:01-05:00",
    "ticker": "CPACASC1"
   },
+  "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261127150701/MLPE95INFORME32FINAL32CPSAA3227112026.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-27T15:13:29-05:00",
+   "ticker": "CPACASC1"
+  },
+  "BVL:https://documents.bvl.com.pe/hhii/CD0005/20261127150701/SMV32CPSAA322711202632CLASIFICADORAMOODYS.PDF": {
+   "fuente": "BVL",
+   "t": "2026-11-27T15:13:29-05:00",
+   "ticker": "CPACASC1"
+  },
   "CMF:2026110702307": {
    "fuente": "CMF",
    "t": "2026-11-03T07:16:03-05:00",
@@ -237,6 +247,11 @@
    "fuente": "SIMEV",
    "t": "2026-11-18T07:57:22-05:00",
    "ticker": "GRUPOARGOS"
+  },
+  "SIMEV:c95ff98a0fdc8d03": {
+   "fuente": "SIMEV",
+   "t": "2026-11-27T15:17:21-05:00",
+   "ticker": "CORFICOLCF"
   },
   "SIMEV:f00c9ac95fdd6f98": {
    "fuente": "SIMEV",
